@@ -155,6 +155,10 @@
                     <div class="absolute bottom-0 left-0 -mb-4 -ml-4 w-32 h-32 bg-white opacity-10 rounded-full blur-xl"></div>
                     <h1 class="text-3xl font-bold mb-3 relative z-10">Math Reservation Form</h1>
                     <p class="text-brand-100 opacity-90 relative z-10 text-lg">Hala Eliwa - Please fill out the form accurately and attach the payment receipt (minimum 300 EGP).</p>
+                    <div class="relative z-10 mt-5 inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2 text-sm font-bold text-white border border-white/20 backdrop-blur-sm">
+                        <i class="fa-solid fa-receipt"></i>
+                        <span>Upload the 300 EGP payment receipt image here before submitting</span>
+                    </div>
                 </div>
 
                 <form id="registration-form" class="p-6 sm:p-8 space-y-6">
@@ -196,8 +200,19 @@
                         <!-- رفع الإيصال -->
                         <div class="col-span-1 md:col-span-2">
                             <label class="block text-sm font-semibold text-slate-700 mb-2">Payment Receipt Image (Vodafone Cash / InstaPay) <span class="text-red-500">*</span></label>
+                            <div class="mb-3 flex flex-wrap items-center gap-2 text-xs font-bold">
+                                <span class="inline-flex items-center gap-1 rounded-full bg-amber-50 px-3 py-1 text-amber-700 border border-amber-200">
+                                    <i class="fa-solid fa-circle-exclamation"></i> الحد الأدنى للدفع: 300 جنيه
+                                </span>
+                                <span class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-slate-600 border border-slate-200">
+                                    <i class="fa-solid fa-camera"></i> صورة واضحة وسعرها ظاهر
+                                </span>
+                            </div>
                             
-                            <div class="mt-1 flex justify-center px-6 pt-6 pb-8 border-2 border-slate-300 border-dashed rounded-2xl hover:border-brand-500 transition-colors bg-slate-50 relative overflow-hidden group cursor-pointer" onclick="document.getElementById('file-upload').click()">
+                            <div class="mt-1 flex justify-center px-6 pt-6 pb-8 border-2 border-slate-300 border-dashed rounded-2xl hover:border-brand-500 transition-colors bg-slate-50 relative overflow-hidden group cursor-pointer shadow-[0_10px_30px_rgba(37,99,235,0.06)]" onclick="document.getElementById('file-upload').click()">
+                                <div class="absolute top-3 left-3 rounded-full bg-brand-600 text-white text-[11px] font-black px-3 py-1 shadow-sm">
+                                    300 EGP
+                                </div>
                                 <div id="upload-placeholder" class="space-y-2 text-center">
                                     <div class="mx-auto h-16 w-16 bg-white rounded-full flex items-center justify-center shadow-sm border border-slate-100 group-hover:scale-110 transition-transform">
                                         <i class="fa-solid fa-cloud-arrow-up text-2xl text-brand-500"></i>
@@ -685,12 +700,116 @@
             renderTable();
         }
 
-        function getWhatsAppLink(phone) {
+        function buildWhatsAppMessage(student, recipientLabel = 'الطالب') {
+            const createdAt = student.createdAt ? new Date(student.createdAt).toLocaleString('ar-EG', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            }) : '-';
+
+            const lines = [
+                `مرحباً ${recipientLabel ? recipientLabel + ' ' : ''}${student.name || ''}`.trim(),
+                '',
+                'تم استلام طلب الحجز بنجاح، وهذه نسخة مرتبة من البيانات المسجلة:',
+                `الاسم: ${student.name || '-'}`,
+                `المرحلة: ${student.grade || '-'}`,
+                `رقم الطالب: ${student.phone1 || '-'}`,
+                `رقم ولي الأمر: ${student.phone2 || '-'}`,
+                `العنوان: ${student.address || '-'}`,
+                `الحالة: ${student.status || 'pending'}`,
+                `تاريخ التسجيل: ${createdAt}`,
+                '',
+                'صورة الإيصال مرفقة معك. المبلغ المطلوب للحجز: 300 جنيه.',
+                'في حال أي استفسار أو تعديل، يرجى الرد على هذه الرسالة.'
+            ];
+
+            return lines.join('\n');
+        }
+
+        function buildStudentSummary(student) {
+            return buildWhatsAppMessage(student, '').trim();
+        }
+
+        function dataUrlToFile(dataUrl, fileName) {
+            const [header, base64Data] = dataUrl.split(',');
+            const mimeMatch = header.match(/data:(.*?);base64/);
+            const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+            const binaryString = atob(base64Data);
+            const bytes = new Uint8Array(binaryString.length);
+
+            for (let index = 0; index < binaryString.length; index += 1) {
+                bytes[index] = binaryString.charCodeAt(index);
+            }
+
+            return new File([bytes], fileName, { type: mimeType });
+        }
+
+        window.shareStudentPackage = async function(docId) {
+            const student = studentsData.find(item => item.id === docId);
+            if (!student) {
+                showToast('تعذر العثور على بيانات الطالب', 'error');
+                return;
+            }
+
+            const summaryText = buildStudentSummary(student);
+
+            try {
+                if (navigator.canShare && student.receiptImage) {
+                    const receiptFile = dataUrlToFile(student.receiptImage, `${student.name || 'receipt'}.jpg`);
+
+                    if (navigator.canShare({ files: [receiptFile] })) {
+                        await navigator.share({
+                            title: `Student package - ${student.name || ''}`.trim(),
+                            text: summaryText,
+                            files: [receiptFile]
+                        });
+                        showToast('تمت مشاركة البيانات مع صورة الإيصال', 'success');
+                        return;
+                    }
+                }
+
+                await navigator.clipboard.writeText(summaryText);
+                if (student.receiptImage) {
+                    openImageModal(student.receiptImage);
+                }
+                showToast('تم نسخ الرسالة، ويمكنك فتح صورة الإيصال من اللوحة', 'info');
+            } catch (error) {
+                console.error('Error sharing student package:', error);
+                showToast('تعذر مشاركة البيانات الآن', 'error');
+            }
+        }
+
+        window.copyStudentSummary = async function(docId) {
+            const student = studentsData.find(item => item.id === docId);
+            if (!student) {
+                showToast('تعذر العثور على بيانات الطالب', 'error');
+                return;
+            }
+
+            const summaryText = buildStudentSummary(student).trim();
+
+            try {
+                await navigator.clipboard.writeText(summaryText);
+                showToast('تم نسخ ملخص بيانات الطالب', 'success');
+            } catch (error) {
+                console.error('Error copying student summary:', error);
+                showToast('تعذر نسخ البيانات، حاول مرة أخرى', 'error');
+            }
+        };
+
+        function getWhatsAppLink(phone, message = '') {
             const digits = String(phone || '').replace(/\D/g, '');
             if (!digits) return null;
-            if (digits.startsWith('0')) return `https://wa.me/20${digits.slice(1)}`;
-            if (digits.startsWith('20')) return `https://wa.me/${digits}`;
-            return `https://wa.me/${digits}`;
+            const baseLink = digits.startsWith('0')
+                ? `https://wa.me/20${digits.slice(1)}`
+                : digits.startsWith('20')
+                    ? `https://wa.me/${digits}`
+                    : `https://wa.me/${digits}`;
+
+            if (!message) return baseLink;
+            return `${baseLink}?text=${encodeURIComponent(message)}`;
         }
 
         function renderTable() {
@@ -749,6 +868,12 @@
                 } else {
                     actionButtons = `
                         <div class="admin-actions flex items-center justify-center gap-2">
+                            <button onclick="shareStudentPackage('${student.id}')" class="w-8 h-8 rounded bg-emerald-100 text-emerald-600 hover:bg-emerald-500 hover:text-white transition-colors" title="مشاركة البيانات مع صورة الإيصال">
+                                <i class="fa-solid fa-share-nodes"></i>
+                            </button>
+                            <button onclick="copyStudentSummary('${student.id}')" class="w-8 h-8 rounded bg-blue-100 text-blue-600 hover:bg-blue-500 hover:text-white transition-colors" title="نسخ بيانات الطالب">
+                                <i class="fa-solid fa-copy"></i>
+                            </button>
                             <button onclick="updateStudentStatus('${student.id}', 'approved')" class="w-8 h-8 rounded ${approveBtnClass} transition-colors" title="قبول">
                                 <i class="fa-solid fa-check"></i>
                             </button>
@@ -762,15 +887,15 @@
                     `;
                 }
 
-                const phone1Link = getWhatsAppLink(student.phone1);
-                const phone2Link = getWhatsAppLink(student.phone2);
+                const phone1Link = getWhatsAppLink(student.phone1, buildWhatsAppMessage(student, 'الطالب'));
+                const phone2Link = getWhatsAppLink(student.phone2, buildWhatsAppMessage(student, 'ولي الأمر'));
 
                 const phone1Html = phone1Link
-                    ? `<a href="${phone1Link}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-sm font-bold text-slate-700 hover:text-brand-600 underline underline-offset-2" dir="ltr"><i class="fa-brands fa-whatsapp text-xs text-emerald-600"></i> ${student.phone1}</a>`
+                    ? `<a href="${phone1Link}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 text-sm font-bold text-slate-700 hover:text-brand-600 underline underline-offset-2" dir="ltr" title="فتح WhatsApp برسالة جاهزة تحتوي على بيانات الطالب"><i class="fa-brands fa-whatsapp text-xs text-emerald-600"></i> ${student.phone1} <span class="text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100 no-underline">بيانات جاهزة</span></a>`
                     : `<div class="text-sm font-bold text-slate-700" dir="ltr"><i class="fa-solid fa-phone text-xs text-slate-400 mr-1"></i> ${student.phone1}</div>`;
 
                 const phone2Html = phone2Link
-                    ? `<a href="${phone2Link}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-brand-600 underline underline-offset-2" dir="ltr"><i class="fa-brands fa-whatsapp text-[10px] text-emerald-600"></i> ${student.phone2}</a>`
+                    ? `<a href="${phone2Link}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-brand-600 underline underline-offset-2" dir="ltr" title="فتح WhatsApp برسالة جاهزة تحتوي على بيانات ولي الأمر"><i class="fa-brands fa-whatsapp text-[10px] text-emerald-600"></i> ${student.phone2} <span class="text-[10px] font-black text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full border border-brand-100 no-underline">ملخص كامل</span></a>`
                     : `<div class="text-xs font-semibold text-slate-500 mt-1" dir="ltr"><i class="fa-solid fa-user-shield text-[10px] text-slate-400 mr-1"></i> ${student.phone2}</div>`;
 
                 const tr = document.createElement('tr');
